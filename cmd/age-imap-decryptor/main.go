@@ -201,4 +201,3 @@ func handleIdleEvent(ctx context.Context, log *slog.Logger, client *mail.Client,
 	}
 	return nil
 }
-
