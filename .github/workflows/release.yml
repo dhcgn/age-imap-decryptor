@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          LDFLAGS="-s -w -X main.buildVersion=${VERSION}"
+          mkdir -p dist
+
+          # Linux amd64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -ldflags="${LDFLAGS}" -o dist/age-imap-decryptor-linux-amd64 ./cmd/age-imap-decryptor
+
+          # Linux arm64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -ldflags="${LDFLAGS}" -o dist/age-imap-decryptor-linux-arm64 ./cmd/age-imap-decryptor
+
+          # macOS amd64
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
+            go build -ldflags="${LDFLAGS}" -o dist/age-imap-decryptor-darwin-amd64 ./cmd/age-imap-decryptor
+
+          # macOS arm64
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -ldflags="${LDFLAGS}" -o dist/age-imap-decryptor-darwin-arm64 ./cmd/age-imap-decryptor
+
+          # Windows amd64
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -ldflags="${LDFLAGS}" -o dist/age-imap-decryptor-windows-amd64.exe ./cmd/age-imap-decryptor
+
+          cd dist && sha256sum * > checksums.txt
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

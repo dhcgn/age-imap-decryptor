@@ -1,0 +1,15 @@
+# local config with real credentials
+config.yaml
+
+# Claude Code local settings
+.claude/
+
+# debug results
+/.debug
+
+# build output
+/age-imap-decryptor
+/age-imap-decryptor.exe
+
+# test cache
+/tmp/

@@ -1,0 +1,21 @@
+imap:
+  server: "imap.example.com"
+  port: 993                          # default: 993
+  username: "user@example.com"
+  password: "supersecret"            # or leave empty and set WATCHER_IMAP_PASSWORD
+  mailbox: "INBOX"                   # default: INBOX
+
+filter:
+  attachment_extension: ".age"       # default: .age
+  sender: "sender@example.com"       # optional; server-side FROM filter
+
+keys:
+  path: "~/.age"                     # directory containing age identity files
+                                     # default: $HOME/.age (resolved at runtime)
+
+output:
+  base_dir: "/var/lib/age-imap-decryptor/decrypted"
+
+runtime:
+  initial_scan: true   # process existing messages on startup
+  idle: true           # keep running and process new messages via IMAP IDLE
