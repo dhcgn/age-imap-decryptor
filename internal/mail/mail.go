@@ -2,6 +2,7 @@ package mail
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	imap "github.com/BrianLeishman/go-imap"
@@ -22,16 +23,19 @@ type Attachment struct {
 // Client wraps the go-imap Dialer with the operations the processor needs.
 type Client struct {
 	d      *imap.Dialer
+	log    *slog.Logger
 	idleCh chan struct{}
 }
 
 // Connect establishes a TLS IMAP connection and authenticates via LOGIN.
-func Connect(server string, port int, username, password string) (*Client, error) {
+// The logger is wired into go-imap so library-level errors surface in our logs.
+func Connect(server string, port int, username, password string, log *slog.Logger) (*Client, error) {
+	imap.SetSlogLogger(log)
 	d, err := imap.New(username, password, server, port)
 	if err != nil {
 		return nil, fmt.Errorf("imap connect to %s:%d: %w", server, port, err)
 	}
-	return &Client{d: d, idleCh: make(chan struct{}, 1)}, nil
+	return &Client{d: d, log: log, idleCh: make(chan struct{}, 1)}, nil
 }
 
 // SelectFolder opens the named IMAP folder for reading.
@@ -112,8 +116,10 @@ func (c *Client) FetchMessages(uids []int) ([]*Message, error) {
 // The same channel is reused across Stop/Start cycles.
 func (c *Client) StartIdle() error {
 	ch := c.idleCh
+	log := c.log
 	handler := &imap.IdleHandler{
-		OnExists: func(_ imap.ExistsEvent) {
+		OnExists: func(e imap.ExistsEvent) {
+			log.Info("IDLE: EXISTS event received", "messageIndex", e.MessageIndex)
 			select {
 			case ch <- struct{}{}:
 			default: // already pending, do not block

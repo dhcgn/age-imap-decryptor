@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "age-imap-decryptor (With IDLE)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/age-imap-decryptor",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "-config",
+        "config.yaml",
+        "-idle=true"
+      ]
+    },
+    {
+      "name": "age-imap-decryptor (Without IDLE)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/age-imap-decryptor",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "-config",
+        "config.yaml",
+        "-scan=true",
+        "-idle=false"
+      ]
+    }
+  ]
+}

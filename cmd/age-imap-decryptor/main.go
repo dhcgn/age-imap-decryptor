@@ -22,6 +22,9 @@ const (
 	idleMaxRetries  = 5
 	idleBackoffBase = time.Second
 	idleBackoffMax  = 60 * time.Second
+	// idlePollFallback is how often we proactively check for new mail even
+	// when no IDLE event arrived — guards against silent IDLE goroutine death.
+	idlePollFallback = 30 * time.Second
 )
 
 func main() {
@@ -66,7 +69,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	client, err := mail.Connect(cfg.IMAP.Server, cfg.IMAP.Port, cfg.IMAP.Username, cfg.IMAP.Password)
+	client, err := mail.Connect(cfg.IMAP.Server, cfg.IMAP.Port, cfg.IMAP.Username, cfg.IMAP.Password, log)
 	if err != nil {
 		log.Error("connect to IMAP server", "err", err)
 		os.Exit(1)
@@ -128,6 +131,33 @@ func runIdle(ctx context.Context, log *slog.Logger, client *mail.Client, proc *p
 	var lastMaxUID int
 	backoff := idleBackoffBase
 	consecutive := 0
+	pollTicker := time.NewTicker(idlePollFallback)
+	defer pollTicker.Stop()
+
+	handleEvent := func(source string) {
+		if err := handleIdleEvent(ctx, log, client, proc, sender, &lastMaxUID); err != nil {
+			consecutive++
+			if consecutive >= idleMaxRetries {
+				log.Error("too many consecutive IDLE errors, giving up", "source", source, "err", err)
+				os.Exit(1)
+			}
+			log.Warn("IDLE event error, will retry", "source", source, "attempt", consecutive, "backoff", backoff, "err", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				backoff = min(backoff*2, idleBackoffMax)
+			}
+			// Restart IDLE after backoff so the select can receive the next event.
+			if err := client.StartIdle(); err != nil {
+				log.Error("restart idle after backoff failed", "err", err)
+				os.Exit(1)
+			}
+		} else {
+			consecutive = 0
+			backoff = idleBackoffBase
+		}
+	}
 
 	for {
 		select {
@@ -139,29 +169,11 @@ func runIdle(ctx context.Context, log *slog.Logger, client *mail.Client, proc *p
 			return
 
 		case <-client.IdleEvents():
-			if err := handleIdleEvent(ctx, log, client, proc, sender, &lastMaxUID); err != nil {
-				consecutive++
-				if consecutive >= idleMaxRetries {
-					log.Error("too many consecutive IDLE errors, giving up", "err", err)
-					os.Exit(1)
-				}
-				log.Warn("IDLE event error, will retry", "attempt", consecutive, "backoff", backoff, "err", err)
-				select {
-				case <-ctx.Done():
-					log.Info("shutting down during backoff")
-					return
-				case <-time.After(backoff):
-					backoff = min(backoff*2, idleBackoffMax)
-				}
-				// Restart IDLE after backoff so the select can receive the next event.
-				if err := client.StartIdle(); err != nil {
-					log.Error("restart idle after backoff failed", "err", err)
-					os.Exit(1)
-				}
-			} else {
-				consecutive = 0
-				backoff = idleBackoffBase
-			}
+			handleEvent("idle")
+
+		case <-pollTicker.C:
+			log.Debug("poll fallback: checking for new mail")
+			handleEvent("poll")
 		}
 	}
 }
